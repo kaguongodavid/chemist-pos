@@ -1,53 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Search, Edit, Trash2, AlertTriangle } from 'lucide-react';
-
-const initialMedicines = [
-  {
-    id: 1,
-    name: 'Paracetamol 500mg',
-    genericName: 'Acetaminophen',
-    category: 'Painkillers',
-    batchNumber: 'BT2024001',
-    units: 5,
-    unitType: 'strips',
-    buyingPrice: 15,
-    sellingPrice: 25,
-    manufactureDate: '2024-01-15',
-    expiryDate: '2026-01-15',
-    supplier: 'Cosmos Pharmaceuticals',
-    reorderLevel: 10,
-  },
-  {
-    id: 2,
-    name: 'Amoxicillin 250mg',
-    genericName: 'Amoxicillin',
-    category: 'Antibiotics',
-    batchNumber: 'BT2024002',
-    units: 3,
-    unitType: 'bottles',
-    buyingPrice: 120,
-    sellingPrice: 180,
-    manufactureDate: '2024-03-10',
-    expiryDate: '2026-03-10',
-    supplier: 'Beta Healthcare',
-    reorderLevel: 5,
-  },
-  {
-    id: 3,
-    name: 'Metformin 500mg',
-    genericName: 'Metformin HCL',
-    category: 'Diabetes',
-    batchNumber: 'BT2024003',
-    units: 45,
-    unitType: 'strips',
-    buyingPrice: 80,
-    sellingPrice: 120,
-    manufactureDate: '2024-02-20',
-    expiryDate: '2027-02-20',
-    supplier: 'Dawa Limited',
-    reorderLevel: 15,
-  },
-];
+import { getAllMedicines, addMedicine, updateMedicine, deleteMedicine } from '../utils/api';
 
 const categories = ['All', 'Antibiotics', 'Painkillers', 'Diabetes', 'Vitamins', 'Antifungals', 'Antiparasitics', 'Other'];
 
@@ -58,33 +11,61 @@ const emptyForm = {
 };
 
 function Inventory() {
-  const [medicines, setMedicines] = useState(initialMedicines);
+  const [medicines, setMedicines] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [form, setForm] = useState(emptyForm);
+  const [loading, setLoading] = useState(true);
 
-  const handleSubmit = (e) => {
+  useEffect(() => {
+    getAllMedicines().then(data => {
+      setMedicines(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (editingId) {
-      setMedicines(medicines.map(m => m.id === editingId ? { ...form, id: editingId } : m));
-      setEditingId(null);
-    } else {
-      setMedicines([...medicines, { ...form, id: Date.now() }]);
+    try {
+      if (editingId) {
+        const updated = await updateMedicine(editingId, form);
+        setMedicines(medicines.map(m => m.id === editingId ? updated : m));
+        setEditingId(null);
+      } else {
+        const newMedicine = await addMedicine(form);
+        setMedicines([newMedicine, ...medicines]);
+      }
+      setForm(emptyForm);
+      setShowForm(false);
+    } catch (err) {
+      alert('Error saving medicine');
     }
-    setForm(emptyForm);
-    setShowForm(false);
   };
 
   const handleEdit = (medicine) => {
-    setForm(medicine);
+    setForm({
+      name: medicine.name,
+      genericName: medicine.generic_name || '',
+      category: medicine.category,
+      batchNumber: medicine.batch_number,
+      units: medicine.units,
+      unitType: medicine.unit_type,
+      buyingPrice: medicine.buying_price,
+      sellingPrice: medicine.selling_price,
+      manufactureDate: medicine.manufacture_date?.split('T')[0],
+      expiryDate: medicine.expiry_date?.split('T')[0],
+      supplier: medicine.supplier || '',
+      reorderLevel: medicine.reorder_level
+    });
     setEditingId(medicine.id);
     setShowForm(true);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('Delete this medicine?')) {
+      await deleteMedicine(id);
       setMedicines(medicines.filter(m => m.id !== id));
     }
   };
@@ -100,11 +81,13 @@ function Inventory() {
 
   const filtered = medicines.filter(m => {
     const matchSearch = m.name.toLowerCase().includes(search.toLowerCase()) ||
-      m.batchNumber.toLowerCase().includes(search.toLowerCase()) ||
-      m.genericName.toLowerCase().includes(search.toLowerCase());
+      m.batch_number.toLowerCase().includes(search.toLowerCase()) ||
+      (m.generic_name && m.generic_name.toLowerCase().includes(search.toLowerCase()));
     const matchCategory = selectedCategory === 'All' || m.category === selectedCategory;
     return matchSearch && matchCategory;
   });
+
+  if (loading) return <div className="p-6 text-gray-500">Loading medicines...</div>;
 
   return (
     <div className="p-6">
@@ -122,7 +105,6 @@ function Inventory() {
         </button>
       </div>
 
-      {/* Add/Edit Form */}
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">
@@ -222,7 +204,6 @@ function Inventory() {
         </div>
       )}
 
-      {/* Search & Filter */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-4 flex flex-wrap gap-4 items-center">
         <div className="flex items-center gap-2 flex-1">
           <Search size={18} className="text-gray-400" />
@@ -251,7 +232,6 @@ function Inventory() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -269,25 +249,25 @@ function Inventory() {
           </thead>
           <tbody>
             {filtered.map((medicine) => {
-              const expired = isExpired(medicine.expiryDate);
-              const expiringSoon = !expired && isExpiringSoon(medicine.expiryDate);
-              const lowStock = Number(medicine.units) <= Number(medicine.reorderLevel);
+              const expired = isExpired(medicine.expiry_date);
+              const expiringSoon = !expired && isExpiringSoon(medicine.expiry_date);
+              const lowStock = Number(medicine.units) <= Number(medicine.reorder_level);
               return (
                 <tr key={medicine.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <p className="font-medium text-gray-800">{medicine.name}</p>
-                    <p className="text-xs text-gray-500">{medicine.genericName}</p>
+                    <p className="text-xs text-gray-500">{medicine.generic_name}</p>
                   </td>
-                  <td className="px-4 py-3 text-sm text-blue-600 font-medium">{medicine.batchNumber}</td>
+                  <td className="px-4 py-3 text-sm text-blue-600 font-medium">{medicine.batch_number}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{medicine.category}</td>
                   <td className="px-4 py-3">
                     <span className={`text-sm font-medium ${lowStock ? 'text-red-600' : 'text-gray-800'}`}>
-                      {medicine.units} {medicine.unitType}
+                      {medicine.units} {medicine.unit_type}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">KES {medicine.buyingPrice}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-800">KES {medicine.sellingPrice}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{medicine.expiryDate}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">KES {medicine.buying_price}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-800">KES {medicine.selling_price}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{medicine.expiry_date?.split('T')[0]}</td>
                   <td className="px-4 py-3">
                     {expired ? (
                       <span className="bg-red-100 text-red-700 px-2 py-1 rounded-full text-xs font-medium">Expired</span>
