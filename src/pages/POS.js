@@ -1,24 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Plus, Minus, Trash2, ShoppingCart, Printer, User } from 'lucide-react';
-
-const medicines = [
-  { id: 1, name: 'Paracetamol 500mg', price: 25, stock: 50, category: 'Painkillers', batchNumber: 'BT2024001' },
-  { id: 2, name: 'Amoxicillin 250mg', price: 180, stock: 30, category: 'Antibiotics', batchNumber: 'BT2024002' },
-  { id: 3, name: 'Metformin 500mg', price: 120, stock: 45, category: 'Diabetes', batchNumber: 'BT2024003' },
-  { id: 4, name: 'ORS Sachets', price: 15, stock: 100, category: 'Other', batchNumber: 'BT2024004' },
-  { id: 5, name: 'Vitamin C 500mg', price: 35, stock: 60, category: 'Vitamins', batchNumber: 'BT2024005' },
-  { id: 6, name: 'Ciprofloxacin 500mg', price: 250, stock: 25, category: 'Antibiotics', batchNumber: 'BT2024006' },
-  { id: 7, name: 'Ibuprofen 400mg', price: 40, stock: 55, category: 'Painkillers', batchNumber: 'BT2024007' },
-  { id: 8, name: 'Omeprazole 20mg', price: 90, stock: 35, category: 'Other', batchNumber: 'BT2024008' },
-];
+import { getAllMedicines, createSale } from '../utils/api';
 
 function POS() {
+  const [medicines, setMedicines] = useState([]);
   const [cart, setCart] = useState([]);
   const [search, setSearch] = useState('');
   const [customer, setCustomer] = useState('Walk-in');
   const [amountPaid, setAmountPaid] = useState('');
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastSale, setLastSale] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getAllMedicines().then(data => {
+      setMedicines(data);
+      setLoading(false);
+    });
+  }, []);
 
   const filtered = medicines.filter(m =>
     m.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -26,15 +25,15 @@ function POS() {
   );
 
   const addToCart = (medicine) => {
+    if (medicine.units <= 0) return alert('Out of stock!');
     const existing = cart.find(item => item.id === medicine.id);
     if (existing) {
+      if (existing.quantity >= medicine.units) return alert('Not enough stock!');
       setCart(cart.map(item =>
-        item.id === medicine.id
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
+        item.id === medicine.id ? { ...item, quantity: item.quantity + 1 } : item
       ));
     } else {
-      setCart([...cart, { ...medicine, quantity: 1 }]);
+      setCart([...cart, { ...medicine, price: Number(medicine.selling_price), quantity: 1 }]);
     }
   };
 
@@ -49,32 +48,48 @@ function POS() {
     }).filter(Boolean));
   };
 
-  const removeFromCart = (id) => {
-    setCart(cart.filter(item => item.id !== id));
-  };
+  const removeFromCart = (id) => setCart(cart.filter(item => item.id !== id));
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const tax = subtotal * 0.16;
   const total = subtotal + tax;
   const change = Number(amountPaid) - total;
 
-  const handleSale = () => {
+  const handleSale = async () => {
     if (cart.length === 0) return alert('Cart is empty!');
     if (!amountPaid || Number(amountPaid) < total) return alert('Insufficient amount paid!');
 
-    const sale = {
-      invoiceNo: `INV${Date.now()}`,
-      customer,
-      items: cart,
-      subtotal,
-      tax,
-      total,
-      amountPaid: Number(amountPaid),
-      change,
-      date: new Date().toLocaleString(),
-    };
-    setLastSale(sale);
-    setShowReceipt(true);
+    try {
+      const saleData = {
+        customerName: customer,
+        items: cart,
+        subtotal,
+        tax,
+        total,
+        amountPaid: Number(amountPaid),
+        changeAmount: change,
+        status: 'Paid'
+      };
+
+      const sale = await createSale(saleData);
+      setLastSale({
+        ...sale,
+        items: cart,
+        subtotal,
+        tax,
+        total,
+        amountPaid: Number(amountPaid),
+        change,
+        customer,
+        date: new Date().toLocaleString()
+      });
+      setShowReceipt(true);
+
+      // Refresh medicines stock
+      getAllMedicines().then(setMedicines);
+    } catch (err) {
+      alert('Error processing sale');
+    }
   };
 
   const handleNewSale = () => {
@@ -85,27 +100,27 @@ function POS() {
     setLastSale(null);
   };
 
+  if (loading) return <div className="p-6 text-gray-500">Loading medicines...</div>;
+
   if (showReceipt && lastSale) {
     return (
       <div className="p-6 max-w-md mx-auto">
-        <div className="bg-white rounded-xl shadow-sm p-6" id="receipt">
+        <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="text-center mb-6">
             <h2 className="text-2xl font-bold text-green-700">ChemistPOS</h2>
             <p className="text-gray-500 text-sm">Pharmacy Receipt</p>
             <p className="text-gray-400 text-xs mt-1">{lastSale.date}</p>
           </div>
-
           <div className="border-t border-dashed border-gray-300 pt-4 mb-4">
             <div className="flex justify-between text-sm mb-2">
               <span className="text-gray-500">Invoice:</span>
-              <span className="font-medium text-blue-600">{lastSale.invoiceNo}</span>
+              <span className="font-medium text-blue-600">{lastSale.invoice_number}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Customer:</span>
               <span className="font-medium">{lastSale.customer}</span>
             </div>
           </div>
-
           <div className="border-t border-dashed border-gray-300 pt-4 mb-4">
             {lastSale.items.map(item => (
               <div key={item.id} className="flex justify-between text-sm mb-2">
@@ -117,7 +132,6 @@ function POS() {
               </div>
             ))}
           </div>
-
           <div className="border-t border-dashed border-gray-300 pt-4 mb-6">
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-500">Subtotal:</span>
@@ -140,21 +154,15 @@ function POS() {
               <span>KES {lastSale.change.toFixed(2)}</span>
             </div>
           </div>
-
           <p className="text-center text-gray-400 text-xs mb-6">Thank you for your purchase!</p>
-
           <div className="flex gap-3">
-            <button
-              onClick={() => window.print()}
-              className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white py-3 rounded-xl hover:bg-green-700"
-            >
+            <button onClick={() => window.print()}
+              className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white py-3 rounded-xl hover:bg-green-700">
               <Printer size={18} />
               Print Receipt
             </button>
-            <button
-              onClick={handleNewSale}
-              className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl hover:bg-gray-300"
-            >
+            <button onClick={handleNewSale}
+              className="flex-1 bg-gray-200 text-gray-700 py-3 rounded-xl hover:bg-gray-300">
               New Sale
             </button>
           </div>
@@ -165,14 +173,11 @@ function POS() {
 
   return (
     <div className="flex h-full">
-      {/* Left - Medicine Search */}
       <div className="flex-1 p-6 overflow-auto">
         <div className="mb-6">
           <h2 className="text-2xl font-bold text-gray-800">Point of Sale</h2>
           <p className="text-gray-500">Search and add medicines to cart</p>
         </div>
-
-        {/* Search */}
         <div className="bg-white rounded-xl shadow-sm p-4 mb-4 flex items-center gap-2">
           <Search size={18} className="text-gray-400" />
           <input
@@ -184,8 +189,6 @@ function POS() {
             autoFocus
           />
         </div>
-
-        {/* Medicine Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filtered.map(medicine => (
             <button
@@ -198,14 +201,17 @@ function POS() {
               </div>
               <p className="font-medium text-gray-800 text-sm">{medicine.name}</p>
               <p className="text-xs text-gray-500 mb-2">{medicine.category}</p>
-              <p className="text-green-700 font-bold">KES {medicine.price}</p>
-              <p className="text-xs text-gray-400">Stock: {medicine.stock}</p>
+              <p className="text-green-700 font-bold">KES {medicine.selling_price}</p>
+              <p className="text-xs text-gray-400">Stock: {medicine.units}</p>
             </button>
           ))}
+          {filtered.length === 0 && (
+            <p className="text-gray-400 col-span-4 text-center py-8">No medicines found</p>
+          )}
         </div>
       </div>
 
-      {/* Right - Cart */}
+      {/* Cart */}
       <div className="w-80 bg-white border-l border-gray-200 flex flex-col">
         <div className="p-4 border-b border-gray-200">
           <h3 className="font-bold text-gray-800 flex items-center gap-2">
@@ -213,8 +219,6 @@ function POS() {
             Cart ({cart.length} items)
           </h3>
         </div>
-
-        {/* Customer */}
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <User size={16} className="text-gray-400" />
@@ -227,8 +231,6 @@ function POS() {
             />
           </div>
         </div>
-
-        {/* Cart Items */}
         <div className="flex-1 overflow-auto p-4 space-y-3">
           {cart.length === 0 ? (
             <p className="text-center text-gray-400 py-8 text-sm">No items in cart</p>
@@ -259,8 +261,6 @@ function POS() {
             ))
           )}
         </div>
-
-        {/* Totals */}
         <div className="p-4 border-t border-gray-200">
           <div className="space-y-2 mb-4">
             <div className="flex justify-between text-sm text-gray-600">
@@ -276,7 +276,6 @@ function POS() {
               <span className="text-green-700">KES {total.toFixed(2)}</span>
             </div>
           </div>
-
           <div className="mb-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">Amount Paid (KES)</label>
             <input
@@ -287,14 +286,12 @@ function POS() {
               placeholder="0.00"
             />
           </div>
-
           {amountPaid && Number(amountPaid) >= total && (
             <div className="bg-green-50 rounded-lg p-3 mb-3 flex justify-between">
               <span className="text-sm text-green-700">Change:</span>
               <span className="font-bold text-green-700">KES {change.toFixed(2)}</span>
             </div>
           )}
-
           <button
             onClick={handleSale}
             className="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition-colors"
