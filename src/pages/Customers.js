@@ -1,41 +1,56 @@
-import React, { useState } from 'react';
-import { Plus, Search, Edit, Trash2, Phone, Mail, CreditCard } from 'lucide-react';
-
-const initialCustomers = [
-  { id: 1, name: 'John Kamau', phone: '+254712345678', email: 'john@email.com', totalPurchases: 4500, creditLimit: 2000, creditUsed: 500, joinDate: '2024-01-15' },
-  { id: 2, name: 'Mary Wanjiku', phone: '+254798765432', email: 'mary@email.com', totalPurchases: 12300, creditLimit: 5000, creditUsed: 1200, joinDate: '2024-02-20' },
-  { id: 3, name: 'Peter Odhiambo', phone: '+254756789012', email: '', totalPurchases: 890, creditLimit: 0, creditUsed: 0, joinDate: '2024-03-10' },
-];
+import React, { useState, useEffect } from 'react';
+import { Plus, Search, Edit, Trash2, Phone, Mail } from 'lucide-react';
+import { getAllCustomers, addCustomer, updateCustomer, deleteCustomer } from '../utils/api';
 
 const emptyForm = { name: '', phone: '', email: '', creditLimit: 0 };
 
 function Customers() {
-  const [customers, setCustomers] = useState(initialCustomers);
+  const [customers, setCustomers] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyForm);
+  const [loading, setLoading] = useState(true);
 
-  const handleSubmit = (e) => {
+  useEffect(() => {
+    getAllCustomers().then(data => {
+      setCustomers(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (editingId) {
-      setCustomers(customers.map(c => c.id === editingId ? { ...c, ...form } : c));
-      setEditingId(null);
-    } else {
-      setCustomers([...customers, { ...form, id: Date.now(), totalPurchases: 0, creditUsed: 0, joinDate: new Date().toISOString().split('T')[0] }]);
+    try {
+      if (editingId) {
+        const updated = await updateCustomer(editingId, form);
+        setCustomers(customers.map(c => c.id === editingId ? updated : c));
+        setEditingId(null);
+      } else {
+        const newCustomer = await addCustomer(form);
+        setCustomers([newCustomer, ...customers]);
+      }
+      setForm(emptyForm);
+      setShowForm(false);
+    } catch (err) {
+      alert('Error saving customer');
     }
-    setForm(emptyForm);
-    setShowForm(false);
   };
 
   const handleEdit = (customer) => {
-    setForm({ name: customer.name, phone: customer.phone, email: customer.email, creditLimit: customer.creditLimit });
+    setForm({
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email || '',
+      creditLimit: customer.credit_limit
+    });
     setEditingId(customer.id);
     setShowForm(true);
   };
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (window.confirm('Delete this customer?')) {
+      await deleteCustomer(id);
       setCustomers(customers.filter(c => c.id !== id));
     }
   };
@@ -44,6 +59,8 @@ function Customers() {
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.phone.includes(search)
   );
+
+  if (loading) return <div className="p-6 text-gray-500">Loading customers...</div>;
 
   return (
     <div className="p-6">
@@ -104,7 +121,6 @@ function Customers() {
         </div>
       )}
 
-      {/* Search */}
       <div className="bg-white rounded-xl shadow-sm p-4 mb-4 flex items-center gap-2">
         <Search size={18} className="text-gray-400" />
         <input
@@ -116,7 +132,6 @@ function Customers() {
         />
       </div>
 
-      {/* Customer Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filtered.map(customer => (
           <div key={customer.id} className="bg-white rounded-xl shadow-sm p-6">
@@ -149,23 +164,23 @@ function Customers() {
             <div className="border-t border-gray-100 pt-4 grid grid-cols-2 gap-3">
               <div>
                 <p className="text-xs text-gray-500">Total Purchases</p>
-                <p className="font-bold text-gray-800">KES {customer.totalPurchases.toLocaleString()}</p>
+                <p className="font-bold text-gray-800">KES {Number(customer.total_purchases).toLocaleString()}</p>
               </div>
               <div>
                 <p className="text-xs text-gray-500">Credit Used</p>
-                <p className="font-bold text-gray-800">KES {customer.creditUsed.toLocaleString()}</p>
+                <p className="font-bold text-gray-800">KES {Number(customer.credit_used).toLocaleString()}</p>
               </div>
             </div>
-            {customer.creditLimit > 0 && (
+            {Number(customer.credit_limit) > 0 && (
               <div className="mt-3">
                 <div className="flex justify-between text-xs text-gray-500 mb-1">
                   <span>Credit Limit</span>
-                  <span>KES {customer.creditLimit.toLocaleString()}</span>
+                  <span>KES {Number(customer.credit_limit).toLocaleString()}</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div
                     className="bg-green-600 h-2 rounded-full"
-                    style={{ width: `${Math.min((customer.creditUsed / customer.creditLimit) * 100, 100)}%` }}
+                    style={{ width: `${Math.min((customer.credit_used / customer.credit_limit) * 100, 100)}%` }}
                   />
                 </div>
               </div>
