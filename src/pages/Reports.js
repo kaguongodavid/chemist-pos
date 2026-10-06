@@ -1,32 +1,39 @@
-import React, { useState } from 'react';
-import { TrendingUp, ShoppingCart, Package, Users, Download, Calendar } from 'lucide-react';
-
-const dailySales = [
-    { day: 'Mon', sales: 8500},
-    { day: 'Tue', sales: 12300},
-    { day: 'Wed', sales: 9800},
-    { day: 'Thu', sales: 15600},
-    { day: 'Fri', sales: 18200},
-    { day: 'Sat', sales: 22100},
-    { day: 'Sun', sales: 6400},
-];
-
-const topMedicines = [
-    { name: 'Paracetamol 500mg', units: 245, revenue: 6125 },
-  { name: 'Amoxicillin 250mg', units: 89, revenue: 16020 },
-  { name: 'ORS Sachets', units: 312, revenue: 4680 },
-  { name: 'Metformin 500mg', units: 124, revenue: 14880 },
-  { name: 'Vitamin C 500mg', units: 198, revenue: 6930 },
-];
-
-const maxSales = Math.max(...dailySales.map(d => d.sales));
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, ShoppingCart, Package, Users, Download } from 'lucide-react';
+import { getAllSales, getAllMedicines, getAllCustomers } from '../utils/api';
 
 function Reports() {
+  const [sales, setSales] = useState([]);
+  const [medicines, setMedicines] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('week');
 
-  const totalRevenue = dailySales.reduce((sum, d) => sum + d.sales, 0);
-  const totalTransactions = 142;
-  const avgSale = totalRevenue / totalTransactions;
+  useEffect(() => {
+    Promise.all([getAllSales(), getAllMedicines(), getAllCustomers()])
+      .then(([s, m, c]) => {
+        setSales(s);
+        setMedicines(m);
+        setCustomers(c);
+        setLoading(false);
+      });
+  }, []);
+
+  const totalRevenue = sales.reduce((sum, s) => sum + Number(s.total), 0);
+  const totalTransactions = sales.length;
+  const avgSale = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
+
+  // Group sales by day for chart
+  const salesByDay = {};
+  sales.forEach(sale => {
+    const day = new Date(sale.created_at).toLocaleDateString('en-US', { weekday: 'short' });
+    salesByDay[day] = (salesByDay[day] || 0) + Number(sale.total);
+  });
+
+  const chartData = Object.entries(salesByDay).slice(-7);
+  const maxSales = Math.max(...chartData.map(([, v]) => v), 1);
+
+  if (loading) return <div className="p-6 text-gray-500">Loading reports...</div>;
 
   return (
     <div className="p-6">
@@ -61,8 +68,8 @@ function Reports() {
         {[
           { label: 'Total Revenue', value: `KES ${totalRevenue.toLocaleString()}`, icon: TrendingUp, color: 'bg-green-500' },
           { label: 'Transactions', value: totalTransactions, icon: ShoppingCart, color: 'bg-blue-500' },
-          { label: 'Avg Sale Value', value: `KES ${avgSale.toFixed(0)}`, icon: Calendar, color: 'bg-purple-500' },
-          { label: 'Items Sold', value: '968', icon: Package, color: 'bg-orange-500' },
+          { label: 'Avg Sale Value', value: `KES ${avgSale.toFixed(0)}`, icon: Package, color: 'bg-purple-500' },
+          { label: 'Total Customers', value: customers.length, icon: Users, color: 'bg-orange-500' },
         ].map(stat => {
           const Icon = stat.icon;
           return (
@@ -81,43 +88,43 @@ function Reports() {
 
         {/* Sales Chart */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-6">Daily Sales (This Week)</h3>
-          <div className="flex items-end gap-3 h-48">
-            {dailySales.map(day => (
-              <div key={day.day} className="flex-1 flex flex-col items-center gap-2">
-                <span className="text-xs text-gray-500">
-                  {(day.sales / 1000).toFixed(1)}k
-                </span>
-                <div
-                  className="w-full bg-green-500 rounded-t-lg transition-all hover:bg-green-600"
-                  style={{ height: `${(day.sales / maxSales) * 160}px` }}
-                />
-                <span className="text-xs text-gray-600 font-medium">{day.day}</span>
-              </div>
-            ))}
-          </div>
+          <h3 className="text-lg font-semibold text-gray-800 mb-6">Sales by Day</h3>
+          {chartData.length === 0 ? (
+            <p className="text-gray-400 text-center py-8">No sales data yet</p>
+          ) : (
+            <div className="flex items-end gap-3 h-48">
+              {chartData.map(([day, amount]) => (
+                <div key={day} className="flex-1 flex flex-col items-center gap-2">
+                  <span className="text-xs text-gray-500">{(amount / 1000).toFixed(1)}k</span>
+                  <div
+                    className="w-full bg-green-500 rounded-t-lg hover:bg-green-600 transition-colors"
+                    style={{ height: `${(amount / maxSales) * 160}px` }}
+                  />
+                  <span className="text-xs text-gray-600 font-medium">{day}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Top Medicines */}
+        {/* Stock Overview */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Top Selling Medicines</h3>
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Stock Overview</h3>
           <div className="space-y-4">
-            {topMedicines.map((medicine, index) => (
-              <div key={medicine.name}>
+            {medicines.slice(0, 5).map((medicine) => (
+              <div key={medicine.id}>
                 <div className="flex justify-between items-center mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-gray-400 w-4">#{index + 1}</span>
-                    <span className="text-sm font-medium text-gray-800">{medicine.name}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-bold text-green-700">KES {medicine.revenue.toLocaleString()}</span>
-                    <span className="text-xs text-gray-500 ml-2">{medicine.units} units</span>
-                  </div>
+                  <span className="text-sm font-medium text-gray-800">{medicine.name}</span>
+                  <span className="text-sm font-bold text-green-700">
+                    {medicine.units} {medicine.unit_type}
+                  </span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-2">
                   <div
-                    className="bg-green-500 h-2 rounded-full"
-                    style={{ width: `${(medicine.revenue / topMedicines[0].revenue) * 100}%` }}
+                    className={`h-2 rounded-full ${
+                      medicine.units <= medicine.reorder_level ? 'bg-red-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min((medicine.units / 100) * 100, 100)}%` }}
                   />
                 </div>
               </div>
@@ -127,45 +134,43 @@ function Reports() {
 
         {/* Recent Transactions */}
         <div className="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Recent Transactions</h3>
-          <table className="w-full">
-            <thead>
-              <tr className="text-left text-sm text-gray-500 border-b">
-                <th className="pb-3">Invoice</th>
-                <th className="pb-3">Customer</th>
-                <th className="pb-3">Items</th>
-                <th className="pb-3">Amount</th>
-                <th className="pb-3">Date</th>
-                <th className="pb-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { inv: 'INV001', customer: 'John Kamau', items: 3, amount: 450, date: 'Today 10:23 AM', status: 'Paid' },
-                { inv: 'INV002', customer: 'Walk-in', items: 1, amount: 120, date: 'Today 10:45 AM', status: 'Paid' },
-                { inv: 'INV003', customer: 'Mary Wanjiku', items: 4, amount: 890, date: 'Today 11:02 AM', status: 'Credit' },
-                { inv: 'INV004', customer: 'Walk-in', items: 2, amount: 230, date: 'Today 11:30 AM', status: 'Paid' },
-                { inv: 'INV005', customer: 'Peter Odhiambo', items: 5, amount: 1240, date: 'Today 12:15 PM', status: 'Paid' },
-              ].map(tx => (
-                <tr key={tx.inv} className="border-b last:border-0">
-                  <td className="py-3 text-blue-600 font-medium text-sm">{tx.inv}</td>
-                  <td className="py-3 text-gray-800 text-sm">{tx.customer}</td>
-                  <td className="py-3 text-gray-600 text-sm">{tx.items}</td>
-                  <td className="py-3 font-medium text-gray-800 text-sm">KES {tx.amount}</td>
-                  <td className="py-3 text-gray-500 text-sm">{tx.date}</td>
-                  <td className="py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      tx.status === 'Paid'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-orange-100 text-orange-700'
-                    }`}>
-                      {tx.status}
-                    </span>
-                  </td>
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">All Transactions</h3>
+          {sales.length === 0 ? (
+            <p className="text-gray-400 text-center py-8">No transactions yet</p>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="text-left text-sm text-gray-500 border-b">
+                  <th className="pb-3">Invoice</th>
+                  <th className="pb-3">Customer</th>
+                  <th className="pb-3">Amount</th>
+                  <th className="pb-3">Date</th>
+                  <th className="pb-3">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sales.map(tx => (
+                  <tr key={tx.id} className="border-b last:border-0">
+                    <td className="py-3 text-blue-600 font-medium text-sm">{tx.invoice_number}</td>
+                    <td className="py-3 text-gray-800 text-sm">{tx.customer_name}</td>
+                    <td className="py-3 font-medium text-gray-800 text-sm">KES {Number(tx.total).toLocaleString()}</td>
+                    <td className="py-3 text-gray-500 text-sm">
+                      {new Date(tx.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        tx.status === 'Paid'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-orange-100 text-orange-700'
+                      }`}>
+                        {tx.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
