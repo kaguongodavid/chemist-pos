@@ -4,7 +4,7 @@ A full-stack Point of Sale system designed for pharmacies and chemists. Manage m
 
 ## 🚀 Live Demo
 
-🔗 https://chemist-ndndfstfe-kaguongodavid1.vercel.app
+🔗 https://chemist-pos-three.vercel.app
 
 Login with: admin / admin1234
 
